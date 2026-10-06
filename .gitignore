@@ -1,0 +1,6 @@
+*.elf
+*.exe
+mcp-vroot
+
+workspace/*
+!workspace/.gitignore

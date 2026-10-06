@@ -1,0 +1,5 @@
+.git/
+*.elf
+*.exe
+mcp-vroot
+workspace/
