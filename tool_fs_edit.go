@@ -149,55 +149,12 @@ func ApplyFileEdits(root *os.Root, filePath string, edits []FileEdit, dryRun boo
 	formattedDiff := formatDiffWithBackticks(diff)
 
 	if !dryRun {
-		if err := atomicWriteFile(root, filePath, modified); err != nil {
+		if err := atomicReplaceFile(root, filePath, modified); err != nil {
 			return "", err
 		}
 	}
 
 	return formattedDiff, nil
-}
-
-func atomicWriteFile(root *os.Root, fp string, content string) error {
-	info, err := root.Stat(fp)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return os.ErrInvalid
-	}
-
-	suffix, err := randomSuffix()
-	if err != nil {
-		return err
-	}
-
-	// Temp file must be in the same directory for atomic rename.
-	tmpPath := fp + "." + suffix + ".tmp"
-	tmp, err := root.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-
-	_, werr := tmp.WriteString(content)
-	_ = tmp.Chmod(info.Mode().Perm())
-	cerr := tmp.Close()
-
-	if werr != nil || cerr != nil {
-		_ = root.Remove(tmpPath)
-		if werr != nil {
-			return werr
-		}
-		return cerr
-	}
-
-	if err := root.Rename(tmpPath, fp); err != nil {
-		_ = root.Remove(tmpPath)
-		return err
-	}
-
-	// Restore permission bits. Failure should not fail the already-successful write.
-	_ = root.Chmod(fp, info.Mode().Perm())
-	return nil
 }
 
 func applyFlexibleReplace(modified, old, next string) (string, bool) {

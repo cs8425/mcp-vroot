@@ -131,6 +131,7 @@ The config file is JSON (see [`config.json`](./config.json) for an example):
 | `fs_copy` | Copies files / directories (recursively). `dst` must not exist; timestamps, ownership, symlinks, etc. are not preserved |
 | `fs_move` | Moves / renames. `dst` must not exist (avoids overwriting and losing data) |
 | `fs_remove` | Removes a file, or a directory recursively |
+| `fs_download` | Download a file from a http/https URL. Only domains in the `download-allow-domain` (JSON array) are permitted (full match). Default allowed domains: `cdn.jsdelivr.net`, `unpkg.com`, `esm.unpkg.com`, `cdnjs.cloudflare.com`, `esm.sh`. An empty array `[]` allows no domains; an array containing `*` allows any domain. |
 
 > A debug `echo` tool is implemented but not registered by default (see `server.go`).
 

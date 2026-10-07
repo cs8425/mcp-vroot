@@ -131,6 +131,7 @@ docker run -it --rm -p 8765:8765 -u 1000:1000 \
 | `fs_copy` | 複製檔案 / 目錄（遞迴）。`dst` 不得已存在；不保留時間戳、擁有者、symlink 等屬性 |
 | `fs_move` | 移動 / 重新命名。`dst` 不得已存在（避免覆寫丟資料） |
 | `fs_remove` | 移除檔案，或遞迴移除目錄 |
+| `fs_download` | 從 http/https URL 下載檔案。僅允許 `download-allow-domain` (JSON 陣列) 中定義的網域（完整匹配）。預設允許網域：`cdn.jsdelivr.net`, `unpkg.com`, `esm.unpkg.com`, `cdnjs.cloudflare.com`, `esm.sh`。空陣列 `[]` 不允許任何網域；包含 `*` 的陣列則允許任何網域。 |
 
 > 除錯用的 `echo` 工具已實作但未註冊（見 `server.go`）。
 

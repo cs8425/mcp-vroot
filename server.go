@@ -5,12 +5,15 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"slices"
 )
 
 type Config struct {
 	Bind        string           `json:"bind,omitempty"`
 	AllowOrigin []string         `json:"allow-origin,omitempty"`
 	WorkSpace   *WorkSpaceConfig `json:"fs,omitempty"`
+
+	DownloadAllowDomain []string `json:"download-allow-domain,omitempty"`
 
 	ServerName string `json:"server-name,omitempty"`
 	ToolPrefix string `json:"tool-prefix,omitempty"`
@@ -66,6 +69,16 @@ func main() {
 	if conf.ServerName == "" {
 		conf.ServerName = "mcp-vroot"
 	}
+	if conf.DownloadAllowDomain == nil { // only not set, empty means don't have any allowed
+		// set default
+		conf.DownloadAllowDomain = []string{
+			"cdn.jsdelivr.net",
+			"unpkg.com",
+			"esm.unpkg.com",
+			"cdnjs.cloudflare.com",
+			"esm.sh",
+		}
+	}
 	if *address != "" || conf.Bind == "" {
 		conf.Bind = *address
 	}
@@ -118,6 +131,16 @@ func main() {
 		})
 		regToolFsRemove(reg, &ToolStateRemove{
 			Root: conf.WorkSpace.Path,
+		})
+
+		// TODO: more flag?
+		allowDomains := conf.DownloadAllowDomain
+		if slices.Contains(conf.DownloadAllowDomain, "*") {
+			allowDomains = nil
+		}
+		regToolFsDownload(reg, &ToolStateDownload{
+			Root:      conf.WorkSpace.Path,
+			AllowList: allowDomains,
 		})
 	}
 

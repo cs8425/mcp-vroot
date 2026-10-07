@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 )
@@ -72,6 +73,58 @@ func getFileSha256Size(root *os.Root, fp string, h256 hash.Hash, buf []byte) ([]
 		return nil, 0, err
 	}
 	return h256.Sum(nil), sz, nil
+}
+
+func atomicWriteFile(root *os.Root, fp string, prem fs.FileMode, procFn func(fd *os.File) error) error {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return err
+	}
+
+	// Temp file must be in the same directory for atomic rename.
+	tmpPath := fp + "." + suffix + ".tmp"
+	tmp, err := root.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+
+	// pass tmp file to process function
+	werr := procFn(tmp)
+
+	_ = tmp.Chmod(prem)
+	cerr := tmp.Close()
+
+	if werr != nil || cerr != nil {
+		_ = root.Remove(tmpPath)
+		if werr != nil {
+			return werr
+		}
+		return cerr
+	}
+
+	if err := root.Rename(tmpPath, fp); err != nil {
+		_ = root.Remove(tmpPath)
+		return err
+	}
+
+	// Restore permission bits. Failure should not fail the already-successful write.
+	_ = root.Chmod(fp, prem)
+	return nil
+}
+
+func atomicReplaceFile(root *os.Root, fp string, content string) error {
+	info, err := root.Stat(fp)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.ErrInvalid
+	}
+
+	return atomicWriteFile(root, fp, info.Mode().Perm(), func(fd *os.File) error {
+		_, werr := fd.WriteString(content)
+		return werr
+	})
 }
 
 func checkFileType(ext string) (isImg bool, mime string, isText bool) {
