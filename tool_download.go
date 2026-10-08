@@ -120,6 +120,9 @@ No partial file left if download failed.`,
 		})
 		// Vf(4, "[fs][download]dlErr=%v, err=%v, ck=%v, hints=%v\n", dlErr, err, ck, hints)
 		if err != nil {
+			if len(hints) == 0 {
+				hints = err.Error()
+			}
 			return []ChatMessagePart{
 				{
 					Type: ChatMessagePartTypeText,
