@@ -27,11 +27,11 @@ type ToolStateReadFile struct {
 }
 
 type ToolReadFile struct {
-	Path     string `json:"path,omitempty"`
-	Mode     string `json:"mode,omitempty"`
-	Offset   int64  `json:"offset,omitempty"`
-	Length   int64  `json:"length,omitempty"`
-	ShowLine *bool  `json:"show_line,omitempty"`
+	Path     string   `json:"path,omitempty"`
+	Mode     string   `json:"mode,omitempty"`
+	Offset   HexInt64 `json:"offset,omitempty"`
+	Length   int64    `json:"length,omitempty"`
+	ShowLine *bool    `json:"show_line,omitempty"`
 	showLine bool
 
 	buf bytes.Buffer
@@ -75,8 +75,7 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		n, err := io.Copy(buf, rd)
 		_ = n
 		out := buf.Bytes()
-		if err := checkBin(out, err); err != nil {
-			// return nil, err
+		if err != nil {
 			return []ChatMessagePart{
 				{
 					Type: ChatMessagePartTypeText,
@@ -84,6 +83,23 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 				},
 			}, true
 		}
+		if len(out) == 0 {
+			return []ChatMessagePart{
+				{
+					Type: ChatMessagePartTypeText,
+					Text: fmt.Sprintf("tool failed with the following error: %v", ErrNoContent.Error()),
+				},
+			}, true
+		}
+		// if err := checkBin(out, err); err != nil {
+		// 	// return nil, err
+		// 	return []ChatMessagePart{
+		// 		{
+		// 			Type: ChatMessagePartTypeText,
+		// 			Text: fmt.Sprintf("tool failed with the following error: %v", err.Error()),
+		// 		},
+		// 	}, true
+		// }
 		// if n != int64(len(out)) {
 		// 	return nil, io.ErrShortBuffer
 		// }
@@ -95,7 +111,8 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 			{
 				Type: ChatMessagePartTypeText,
 				// Text: buf.String(),
-				Text: string(out), // len(out) == 0 ?
+				// Text: string(out), // len(out) == 0 ?
+				Text: Dump(out, int(offset)),
 			},
 		}, false
 	}
@@ -180,7 +197,7 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 					Description: "read by line or read by byte",
 					Enum: []string{
 						"line",
-						"byte",
+						"hex",
 					},
 				},
 				"show_line": {
@@ -222,7 +239,7 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 				out.ShowLine = &defVal
 			}
 			out.showLine = *out.ShowLine
-		case "byte":
+		case "hex":
 			if out.Length > MaxBufferSize {
 				return ErrBadParam
 			}
@@ -263,12 +280,12 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		// fSz := info.Size()
 
 		switch param.Mode {
-		case "byte":
-			return readAsByte(fd, param.Offset, param.Length, &param.buf)
+		case "hex":
+			return readAsByte(fd, int64(param.Offset), param.Length, &param.buf)
 		default:
 			fallthrough
 		case "line":
-			return readAsLine(fd, param.Offset, param.Length, param.showLine, &param.buf)
+			return readAsLine(fd, int64(param.Offset), param.Length, param.showLine, &param.buf)
 		}
 	})
 }
