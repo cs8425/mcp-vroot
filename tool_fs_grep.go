@@ -15,12 +15,14 @@ import (
 
 	"mcp-vroot/jsonschema"
 
+	"github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/requests"
 )
 
 type ToolStateGrep struct {
 	Root          string
 	MaxReturnLine int
+	GetPdfPool    func() pdfium.Pool
 }
 
 type ToolGrep struct {
@@ -109,7 +111,7 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 			}, true
 		}
 		defer root.Close()
-		out, err := grep(root, param.Path, param.Pattern, param.Limit, param.Offset)
+		out, err := grep(root, param.Path, param.Pattern, param.Limit, param.Offset, state.GetPdfPool())
 		Vln(4, "[fs]grep", len(out), err)
 		if len(out) == 0 && err != nil {
 			// return nil, err
@@ -138,7 +140,7 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 	})
 }
 
-func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int) (string, error) {
+func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int, pdfPool pdfium.Pool) (string, error) {
 	if fp == "" {
 		fp = "."
 	}
@@ -170,7 +172,7 @@ func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int)
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		switch ext {
 		case ".pdf":
-			found, write, err = grepPdfFile(root, path, rx, &sb, idx, maxLine-retLine)
+			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine-retLine)
 		default:
 			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine-retLine)
 		}
@@ -230,8 +232,8 @@ func grepFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, 
 	return found, write, nil
 }
 
-func grepPdfFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, baseOffset int, maxRetCount int) (int, int, error) {
-	instance, doc, clsFn, err := openPdf(root, fp)
+func grepPdfFile(pdfPool pdfium.Pool, root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, baseOffset int, maxRetCount int) (int, int, error) {
+	instance, doc, clsFn, err := openPdf(pdfPool, root, fp)
 	if err != nil {
 		Vln(4, "[grepPdfFile]", root, fp, err)
 		return 0, 0, err

@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/klippa-app/go-pdfium"
@@ -17,28 +18,43 @@ import (
 	"github.com/klippa-app/go-pdfium/webassembly"
 )
 
-var (
-	pdfPool pdfium.Pool
-)
+func buildPdfPool(conf *PdfUtilConfig) func() pdfium.Pool {
+	return sync.OnceValue(func() pdfium.Pool {
+		pdfPool, err := conf.InitWorker()
+		if err != nil {
+			log.Fatal("[pdf]init err", err)
+		}
+		return pdfPool
+	})
+}
 
-func init() {
+type PdfUtilConfig struct {
+	MinIdle  int  `json:"min-idle,omitempty"`
+	MaxIdle  int  `json:"max-idle,omitempty"`
+	MaxTotal int  `json:"max-total,omitempty"`
+	LazyInit bool `json:"lazy,omitempty"`
+}
+
+func (conf *PdfUtilConfig) InitWorker() (pdfium.Pool, error) {
 	t0 := time.Now()
-	Vln(4, "[pdf]init start", t0)
+	Vln(4, "[pdf]init start (compile wasm)", t0)
 	var err error
 	// Init the PDFium library and return the instance to open documents.
 	// You can tweak these configs to your need. Be aware that workers can use quite some memory.
-	pdfPool, err = webassembly.Init(webassembly.Config{
-		MinIdle:  2, // Makes sure that at least x workers are always available
-		MaxIdle:  4, // Makes sure that at most x workers are ever available
-		MaxTotal: 4, // The maximum number of workers in total, allows the number of workers to grow when needed, items between total max and idle max are automatically cleaned up, while idle workers are kept alive so they can be used directly.
+	pdfPool, err := webassembly.Init(webassembly.Config{
+		MinIdle:  conf.MinIdle,  // Makes sure that at least x workers are always available
+		MaxIdle:  conf.MaxIdle,  // Makes sure that at most x workers are ever available
+		MaxTotal: conf.MaxTotal, // The maximum number of workers in total, allows the number of workers to grow when needed, items between total max and idle max are automatically cleaned up, while idle workers are kept alive so they can be used directly.
 	})
 	if err != nil {
-		log.Fatal(err)
+		Vln(4, "[pdf]init enerrd", err)
+		return nil, err
 	}
 	Vln(4, "[pdf]init end", pdfPool, time.Since(t0))
+	return pdfPool, err
 }
 
-func openPdf(root *os.Root, fp string) (pdfium.Pdfium, *responses.OpenDocument, func(), error) {
+func openPdf(pdfPool pdfium.Pool, root *os.Root, fp string) (pdfium.Pdfium, *responses.OpenDocument, func(), error) {
 	closeQueue := make([]func() error, 0, 3)
 	closeFn := func() {
 		slices.Reverse(closeQueue)
@@ -81,8 +97,8 @@ func openPdf(root *os.Root, fp string) (pdfium.Pdfium, *responses.OpenDocument, 
 	return instance, doc, closeFn, nil
 }
 
-func readPdfToc(root *os.Root, fp string, sb *strings.Builder) error {
-	instance, doc, clsFn, err := openPdf(root, fp)
+func readPdfToc(pdfPool pdfium.Pool, root *os.Root, fp string, sb *strings.Builder) error {
+	instance, doc, clsFn, err := openPdf(pdfPool, root, fp)
 	if err != nil {
 		return err
 	}
@@ -113,8 +129,8 @@ func readPdfToc(root *os.Root, fp string, sb *strings.Builder) error {
 	return nil
 }
 
-func readPdfAsImg(root *os.Root, fp string, w io.Writer, page int, limit int) (int, error) {
-	instance, doc, clsFn, err := openPdf(root, fp)
+func readPdfAsImg(pdfPool pdfium.Pool, root *os.Root, fp string, w io.Writer, page int, limit int) (int, error) {
+	instance, doc, clsFn, err := openPdf(pdfPool, root, fp)
 	if err != nil {
 		return -1, err
 	}
@@ -148,8 +164,8 @@ func readPdfAsImg(root *os.Root, fp string, w io.Writer, page int, limit int) (i
 	return pageCount.PageCount, nil
 }
 
-func readPdfAsText(root *os.Root, fp string, sb *strings.Builder, page int, limit int) (int, error) {
-	instance, doc, clsFn, err := openPdf(root, fp)
+func readPdfAsText(pdfPool pdfium.Pool, root *os.Root, fp string, sb *strings.Builder, page int, limit int) (int, error) {
+	instance, doc, clsFn, err := openPdf(pdfPool, root, fp)
 	if err != nil {
 		return -1, err
 	}

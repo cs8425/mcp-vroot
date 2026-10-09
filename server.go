@@ -5,6 +5,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"runtime"
 	"slices"
 )
 
@@ -17,6 +18,8 @@ type Config struct {
 
 	ServerName string `json:"server-name,omitempty"`
 	ToolPrefix string `json:"tool-prefix,omitempty"`
+
+	PdfConf *PdfUtilConfig `json:"pdf,omitempty"`
 }
 
 type WorkSpaceConfig struct {
@@ -79,6 +82,20 @@ func main() {
 			"esm.sh",
 		}
 	}
+
+	// pdf config
+	if conf.PdfConf == nil {
+		conf.PdfConf = &PdfUtilConfig{
+			MinIdle:  1,
+			MaxIdle:  1,
+			MaxTotal: runtime.GOMAXPROCS(0),
+		}
+	}
+	getPdfPool := buildPdfPool(conf.PdfConf)
+	if !conf.PdfConf.LazyInit {
+		getPdfPool()
+	}
+
 	if *address != "" || conf.Bind == "" {
 		conf.Bind = *address
 	}
@@ -102,6 +119,7 @@ func main() {
 	regToolFsGrep(reg, &ToolStateGrep{
 		Root:          conf.WorkSpace.Path,
 		MaxReturnLine: 250,
+		GetPdfPool:    getPdfPool,
 	})
 	regToolFsReadFile(reg, &ToolStateReadFile{
 		Root:          conf.WorkSpace.Path,
@@ -109,7 +127,8 @@ func main() {
 		MaxBufferSize: 1024,
 	})
 	regToolFsViewFile(reg, &ToolStateViewFile{
-		Root: conf.WorkSpace.Path,
+		Root:       conf.WorkSpace.Path,
+		GetPdfPool: getPdfPool,
 	})
 
 	// write

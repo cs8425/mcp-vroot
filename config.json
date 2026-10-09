@@ -15,5 +15,11 @@
 		"mode": "rw",
 		"allow-tools": [],
 		"deny-tools": []
+	},
+	"pdf": {
+		"lazy": true,
+		"min-idle": 1,
+		"max-idle": 1,
+		"max-total": 4
 	}
 }

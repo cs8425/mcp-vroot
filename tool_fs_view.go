@@ -16,6 +16,8 @@ import (
 	"sync"
 
 	"mcp-vroot/jsonschema"
+
+	"github.com/klippa-app/go-pdfium"
 )
 
 var (
@@ -25,7 +27,8 @@ var (
 )
 
 type ToolStateViewFile struct {
-	Root string
+	Root       string
+	GetPdfPool func() pdfium.Pool
 }
 
 type ToolViewFile struct {
@@ -100,11 +103,11 @@ func regToolFsViewFile(reg *Registry, conf *ToolStateViewFile) {
 		}, false
 	}
 
-	procPdf := func(root *os.Root, param *ToolViewFile) ([]ChatMessagePart, bool) {
+	procPdf := func(pdfPool pdfium.Pool, root *os.Root, param *ToolViewFile) ([]ChatMessagePart, bool) {
 		// for toc
 		if param.Page == 0 {
 			param.sb.Reset()
-			err := readPdfToc(root, param.Path, &param.sb)
+			err := readPdfToc(pdfPool, root, param.Path, &param.sb)
 			out := param.sb.String()
 			if len(out) == 0 {
 				// out = "Warning: not bookmark/ToC in pdf\n"
@@ -131,7 +134,7 @@ func regToolFsViewFile(reg *Registry, conf *ToolStateViewFile) {
 			fallthrough
 		case "text":
 			param.sb.Reset()
-			pageCount, err := readPdfAsText(root, param.Path, &param.sb, param.Page, param.Limit)
+			pageCount, err := readPdfAsText(pdfPool, root, param.Path, &param.sb, param.Page, param.Limit)
 			Vln(4, "[tool]ToolReadPdf text", param.sb.Len(), pageCount, err)
 			if param.sb.Len() == 0 {
 				// out = " "
@@ -156,7 +159,7 @@ func regToolFsViewFile(reg *Registry, conf *ToolStateViewFile) {
 		case "image":
 			param.buf.Reset()
 			enc := base64.NewEncoder(base64.StdEncoding, &param.buf)
-			pageCount, err := readPdfAsImg(root, param.Path, enc, param.Page, param.Limit)
+			pageCount, err := readPdfAsImg(pdfPool, root, param.Path, enc, param.Page, param.Limit)
 			enc.Close()
 			Vln(4, "[tool]ToolReadPdf img", param.buf.Len(), pageCount, err)
 			if param.buf.Len() == 0 {
@@ -288,7 +291,7 @@ page=0回傳ToC(目錄)。
 			return returnAsPng(root, param.Path)
 
 		case "application/pdf":
-			return procPdf(root, param)
+			return procPdf(state.GetPdfPool(), root, param)
 
 			// TODO: convert ?
 			// case "image/svg+xml":
