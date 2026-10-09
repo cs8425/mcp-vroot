@@ -39,8 +39,8 @@ type ToolReadFile struct {
 }
 
 func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
-	const MaxBufferSize = 2 * 1024
-	const MaxLines = 150
+	const MaxBufferSize = 4 * 1024
+	const MaxLines = 500
 
 	if conf == nil {
 		conf = &ToolStateReadFile{
@@ -91,18 +91,6 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 				},
 			}, true
 		}
-		// if err := checkBin(out, err); err != nil {
-		// 	// return nil, err
-		// 	return []ChatMessagePart{
-		// 		{
-		// 			Type: ChatMessagePartTypeText,
-		// 			Text: fmt.Sprintf("tool failed with the following error: %v", err.Error()),
-		// 		},
-		// 	}, true
-		// }
-		// if n != int64(len(out)) {
-		// 	return nil, io.ErrShortBuffer
-		// }
 		if n > length {
 			fmt.Fprintf(buf, "Warning: returned %v; continue with offset=%v\n", length, length+offset)
 			out = out[:length]
@@ -110,8 +98,6 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		return []ChatMessagePart{
 			{
 				Type: ChatMessagePartTypeText,
-				// Text: buf.String(),
-				// Text: string(out), // len(out) == 0 ?
 				Text: Dump(out, int(offset)),
 			},
 		}, false
