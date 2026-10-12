@@ -48,6 +48,12 @@ func (h *HexInt64) UnmarshalJSON(data []byte) error {
 			*h = HexInt64(n)
 			return nil
 		}
+
+		var n int64
+		if err := json.Unmarshal([]byte(s), &n); err == nil {
+			*h = HexInt64(n)
+			return nil
+		}
 	}
 
 	var n int64
