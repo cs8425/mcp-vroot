@@ -15,7 +15,7 @@ const (
 	// The LCS algorithm is O(oldLines * newLines); if the product exceeds
 	// this threshold, the code falls back to a simpler prefix/suffix diff
 	// to avoid excessive memory usage and runtime on large files.
-	maxDiffCells = 4_000_000
+	maxDiffCells = 32_000_000
 
 	// dirDiagonal marks an LCS transition where the old and new lines match.
 	// This produces a context line in the diff.
