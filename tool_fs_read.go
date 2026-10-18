@@ -140,7 +140,7 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 			found += 1
 			if found+baseOffset > 0 && write < maxRetCount {
 				if showLine {
-					fmt.Fprintf(buf, "% 3d | ", found)
+					fmt.Fprintf(buf, "% 3d| ", found)
 				}
 				buf.Write(bufLine)
 				buf.Write([]byte{'\n'})

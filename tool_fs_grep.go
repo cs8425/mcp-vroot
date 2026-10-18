@@ -80,6 +80,10 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 					Type:        jsonschema.Integer,
 					Description: fmt.Sprintf(`how many lines should return, max %v lines`, conf.MaxReturnLine),
 				},
+				"show_line": {
+					Type:        jsonschema.Boolean,
+					Description: "show line number when using line mode, start from 1. (default: true)",
+				},
 			},
 			Required: []string{"pattern"},
 		},
@@ -199,9 +203,9 @@ func grep(
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		switch ext {
 		case ".pdf":
-			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine-retLine, showLine)
+			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine+1-retLine, showLine)
 		default:
-			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine-retLine, showLine, lineBuffer)
+			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine+1-retLine, showLine, lineBuffer)
 		}
 		// found, write, err := grepFile(root, path, rx, &sb, idx, maxLine-retLine)
 		if err != nil {
