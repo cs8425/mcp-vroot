@@ -203,9 +203,9 @@ func grep(
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		switch ext {
 		case ".pdf":
-			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine+1-retLine, showLine)
+			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine-retLine, showLine)
 		default:
-			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine+1-retLine, showLine, lineBuffer)
+			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine-retLine, showLine, lineBuffer)
 		}
 		// found, write, err := grepFile(root, path, rx, &sb, idx, maxLine-retLine)
 		if err != nil {
@@ -216,7 +216,7 @@ func grep(
 		}
 		idx += found
 		retLine += write
-		if retLine >= maxLine {
+		if retLine > maxLine {
 			fmt.Fprintf(&sb, "return early due to reach max line\n")
 			return fs.SkipAll
 		}
@@ -273,12 +273,17 @@ func grepFile(
 		if rx.MatchString(line) {
 			// fmt.Println(line)
 			found += 1
-			if found+baseOffset > 0 && write < maxRetCount {
-				if showLine {
-					fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+			if found+baseOffset > 0 {
+				if write < maxRetCount {
+					if showLine {
+						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+					}
+					fmt.Fprintf(sb, "%v:%v:%v\n", fp, idx, line)
 				}
-				fmt.Fprintf(sb, "%v:%v:%v\n", fp, idx, line)
 				write += 1
+			}
+			if write > maxRetCount { // find one more
+				break
 			}
 		}
 		idx += 1
