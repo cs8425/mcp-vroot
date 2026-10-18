@@ -19,28 +19,40 @@ import (
 	"github.com/klippa-app/go-pdfium/requests"
 )
 
+const (
+	MaxLineBufferSize = 4 * 1024 * 1024 // 4MB, for bufio.Scanner
+)
+
 type ToolStateGrep struct {
-	Root          string
-	MaxReturnLine int
-	GetPdfPool    func() pdfium.Pool
+	Root              string
+	MaxReturnLine     int
+	MaxLineBufferSize int
+	GetPdfPool        func() pdfium.Pool
 }
 
 type ToolGrep struct {
-	Pattern string `json:"pattern,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Offset  int    `json:"offset,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Pattern  string `json:"pattern,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Offset   int    `json:"offset,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	ShowLine *bool  `json:"show_line,omitempty"`
+	showLine bool
 }
 
 func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
+
 	if conf == nil {
 		conf = &ToolStateGrep{
-			Root:          "",
-			MaxReturnLine: 150,
+			Root:              "",
+			MaxReturnLine:     150,
+			MaxLineBufferSize: MaxLineBufferSize,
 		}
 	}
 	if conf.MaxReturnLine <= 0 {
 		conf.MaxReturnLine = 150
+	}
+	if conf.MaxLineBufferSize <= 0 {
+		conf.MaxLineBufferSize = MaxLineBufferSize
 	}
 
 	reg.Register(&ToolDefine{
@@ -93,9 +105,14 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 		if out.Limit > conf.MaxReturnLine {
 			return ErrBadParam
 		}
+		if out.ShowLine == nil {
+			defVal := true
+			out.ShowLine = &defVal
+		}
+		out.showLine = *out.ShowLine
 		return nil
 	}, func(ctx context.Context, req *ToolRequest, param *ToolGrep, state *ToolStateGrep) ([]ChatMessagePart, bool) {
-		Vf(4, "[fs][grep]pattern=%v path=%v\n", param.Pattern, param.Path)
+		Vf(4, "[fs][grep]pattern=%v path=%v offset=%v\n", param.Pattern, param.Path, param.Offset)
 		idx := strings.Index(param.Path, "*")
 		if idx >= 0 {
 			param.Path = param.Path[:idx]
@@ -111,7 +128,8 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 			}, true
 		}
 		defer root.Close()
-		out, err := grep(root, param.Path, param.Pattern, param.Limit, param.Offset, state.GetPdfPool())
+		linBuf := make([]byte, state.MaxLineBufferSize) // line buffer
+		out, err := grep(root, param.Path, param.Pattern, param.Limit, param.Offset, param.showLine, linBuf, state.GetPdfPool())
 		Vln(4, "[fs]grep", len(out), err)
 		if len(out) == 0 && err != nil {
 			// return nil, err
@@ -140,7 +158,16 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 	})
 }
 
-func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int, pdfPool pdfium.Pool) (string, error) {
+func grep(
+	root *os.Root,
+	fp string,
+	pattern string,
+	maxLine int,
+	offsetLine int,
+	showLine bool,
+	lineBuffer []byte,
+	pdfPool pdfium.Pool,
+) (string, error) {
 	if fp == "" {
 		fp = "."
 	}
@@ -172,9 +199,9 @@ func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int,
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 		switch ext {
 		case ".pdf":
-			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine-retLine)
+			found, write, err = grepPdfFile(pdfPool, root, path, rx, &sb, idx, maxLine-retLine, showLine)
 		default:
-			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine-retLine)
+			found, write, err = grepFile(root, path, rx, &sb, idx, maxLine-retLine, showLine, lineBuffer)
 		}
 		// found, write, err := grepFile(root, path, rx, &sb, idx, maxLine-retLine)
 		if err != nil {
@@ -194,7 +221,16 @@ func grep(root *os.Root, fp string, pattern string, maxLine int, offsetLine int,
 	return sb.String(), err
 }
 
-func grepFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, baseOffset int, maxRetCount int) (int, int, error) {
+func grepFile(
+	root *os.Root,
+	fp string,
+	rx *regexp.Regexp,
+	sb *strings.Builder,
+	baseOffset int,
+	maxRetCount int,
+	showLine bool,
+	lineBuffer []byte,
+) (int, int, error) {
 	fp = filepath.ToSlash(fp)
 	fd, err := root.Open(fp)
 	if err != nil {
@@ -203,6 +239,14 @@ func grepFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, 
 	}
 	defer fd.Close()
 	scanner := bufio.NewScanner(fd)
+
+	if len(lineBuffer) > 0 {
+		scanner.Buffer(lineBuffer, len(lineBuffer))
+	} else {
+		var linBuf [MaxLineBufferSize]byte
+		scanner.Buffer(linBuf[:], MaxLineBufferSize)
+	}
+
 	idx := 1
 	found, write := 0, 0
 	for scanner.Scan() {
@@ -211,6 +255,9 @@ func grepFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, 
 			if rx.MatchString(string(buf)) {
 				found += 1
 				if found+baseOffset > 0 && write < maxRetCount {
+					if showLine {
+						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+					}
 					fmt.Fprintf(sb, "%v:binary match\n", fp)
 					write += 1
 				}
@@ -223,16 +270,29 @@ func grepFile(root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, 
 			// fmt.Println(line)
 			found += 1
 			if found+baseOffset > 0 && write < maxRetCount {
+				if showLine {
+					fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+				}
 				fmt.Fprintf(sb, "%v:%v:%v\n", fp, idx, line)
 				write += 1
 			}
 		}
 		idx += 1
 	}
-	return found, write, nil
+	err = scanner.Err()
+	return found, write, err
 }
 
-func grepPdfFile(pdfPool pdfium.Pool, root *os.Root, fp string, rx *regexp.Regexp, sb *strings.Builder, baseOffset int, maxRetCount int) (int, int, error) {
+func grepPdfFile(
+	pdfPool pdfium.Pool,
+	root *os.Root,
+	fp string,
+	rx *regexp.Regexp,
+	sb *strings.Builder,
+	baseOffset int,
+	maxRetCount int,
+	showLine bool,
+) (int, int, error) {
 	instance, doc, clsFn, err := openPdf(pdfPool, root, fp)
 	if err != nil {
 		Vln(4, "[grepPdfFile]", root, fp, err)
@@ -259,6 +319,9 @@ func grepPdfFile(pdfPool pdfium.Pool, root *os.Root, fp string, rx *regexp.Regex
 		req.Page.ByIndex.Index = i
 		pageText, err := instance.GetPageText(req)
 		if err != nil {
+			if showLine {
+				fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+			}
 			fmt.Fprintf(sb, "%v:p.%v:%v\n", fp, i+1, err)
 			continue
 		}
@@ -267,6 +330,9 @@ func grepPdfFile(pdfPool pdfium.Pool, root *os.Root, fp string, rx *regexp.Regex
 			if rx.MatchString(line) {
 				found += 1
 				if found+baseOffset > 0 && write < maxRetCount {
+					if showLine {
+						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+					}
 					fmt.Fprintf(sb, "%v:p.%v:%v\n", fp, pageText.Page+1, strings.TrimRight(line, "\r\n"))
 					write += 1
 				}

@@ -21,9 +21,10 @@ var (
 )
 
 type ToolStateReadFile struct {
-	Root          string
-	MaxLines      int
-	MaxBufferSize int
+	Root              string
+	MaxLines          int
+	MaxBufferSize     int
+	MaxLineBufferSize int
 }
 
 type ToolReadFile struct {
@@ -54,6 +55,9 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 	}
 	if conf.MaxBufferSize <= 0 {
 		conf.MaxBufferSize = MaxBufferSize
+	}
+	if conf.MaxLineBufferSize <= 0 {
+		conf.MaxLineBufferSize = MaxLineBufferSize
 	}
 
 	checkBin := func(out []byte, err error) error {
@@ -103,10 +107,25 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		}, false
 	}
 
-	readAsLine := func(fd *os.File, offset int64, length int64, showLine bool, buf *bytes.Buffer) ([]ChatMessagePart, bool) {
+	readAsLine := func(
+		fd *os.File,
+		offset int64,
+		length int64,
+		showLine bool,
+		lineBuffer []byte,
+		buf *bytes.Buffer,
+	) ([]ChatMessagePart, bool) {
 		baseOffset := -offset
 		maxRetCount := length
 		scanner := bufio.NewScanner(fd)
+
+		if len(lineBuffer) > 0 {
+			scanner.Buffer(lineBuffer, len(lineBuffer))
+		} else {
+			var linBuf [MaxLineBufferSize]byte
+			scanner.Buffer(linBuf[:], MaxLineBufferSize)
+		}
+
 		found, write := int64(0), int64(0)
 		var err error
 		for scanner.Scan() {
@@ -133,6 +152,17 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		}
 		if write >= maxRetCount {
 			buf.WriteString("Warning: reach maximum output limit\n")
+		}
+		if err == nil {
+			err = scanner.Err()
+		}
+		if err != nil {
+			return []ChatMessagePart{
+				{
+					Type: ChatMessagePartTypeText,
+					Text: fmt.Sprintf("tool failed with the following error: %v", err.Error()),
+				},
+			}, true
 		}
 		out := buf.Bytes()
 		if err := checkBin(out, err); err != nil {
@@ -271,7 +301,8 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 		default:
 			fallthrough
 		case "line":
-			return readAsLine(fd, int64(param.Offset), param.Length, param.showLine, &param.buf)
+			linBuf := make([]byte, state.MaxLineBufferSize) // line buffer
+			return readAsLine(fd, int64(param.Offset), param.Length, param.showLine, linBuf, &param.buf)
 		}
 	})
 }
