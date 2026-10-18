@@ -82,10 +82,8 @@ func regToolFsList(reg *Registry, conf *ToolListState) {
 		if err != nil {
 			return err
 		}
-		if out.Pattern == "" { // set default only for no pattern
-			if out.Depth == 0 {
-				out.Depth = 2
-			}
+		if out.Depth == 0 {
+			out.Depth = 2
 		}
 		if out.Offset < 0 {
 			return ErrBadParam
@@ -219,7 +217,7 @@ func fsFind(root *os.Root, fp string, pattern string, maxDepth int, limit int, o
 			if path != fp && strings.HasPrefix(d.Name(), ".") {
 				return fs.SkipDir
 			}
-			if maxDepth > 0 && depth >= maxDepth {
+			if maxDepth >= 0 && depth >= maxDepth {
 				return fs.SkipDir
 			}
 		}
