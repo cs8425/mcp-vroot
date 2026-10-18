@@ -172,6 +172,9 @@ func fsFind(root *os.Root, fp string, pattern string, maxDepth int, limit int, o
 	err = fs.WalkDir(root.FS(), fp, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			Vln(4, "[find]", root, path, err)
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
 			return err
 		}
 
