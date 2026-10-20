@@ -113,8 +113,8 @@ func main() {
 	// register tools
 	// regToolEcho(reg)
 	regToolFsList(reg, &ToolListState{
-		Root:    conf.WorkSpace.Path,
-		MaxLmit: 250,
+		Root:     conf.WorkSpace.Path,
+		MaxLimit: 250,
 	})
 	regToolFsGrep(reg, &ToolStateGrep{
 		Root:          conf.WorkSpace.Path,

@@ -18,7 +18,7 @@ import (
 
 type ToolListState struct {
 	Root    string
-	MaxLmit int
+	MaxLimit int
 }
 
 type ToolList struct {
@@ -33,11 +33,11 @@ func regToolFsList(reg *Registry, conf *ToolListState) {
 	if conf == nil {
 		conf = &ToolListState{
 			Root:    "",
-			MaxLmit: 250,
+			MaxLimit: 250,
 		}
 	}
-	if conf.MaxLmit <= 0 {
-		conf.MaxLmit = 250
+	if conf.MaxLimit <= 0 {
+		conf.MaxLimit = 250
 	}
 
 	reg.Register(&ToolDefine{
@@ -64,7 +64,7 @@ func regToolFsList(reg *Registry, conf *ToolListState) {
 				"limit": {
 					Type: jsonschema.Integer,
 					Description: fmt.Sprintf(`how many results should return, max %v results`,
-						conf.MaxLmit,
+						conf.MaxLimit,
 					),
 				},
 			},
@@ -89,12 +89,12 @@ func regToolFsList(reg *Registry, conf *ToolListState) {
 			return ErrBadParam
 		}
 		if out.Limit == 0 {
-			out.Limit = conf.MaxLmit
+			out.Limit = conf.MaxLimit
 		}
 		if out.Limit < 0 {
 			return ErrBadParam
 		}
-		if out.Limit > conf.MaxLmit {
+		if out.Limit > conf.MaxLimit {
 			return ErrBadParam
 		}
 		if len(out.Path) <= 0 {
