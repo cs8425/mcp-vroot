@@ -21,6 +21,7 @@ import (
 
 const (
 	MaxLineBufferSize = 4 * 1024 * 1024 // 4MB, for bufio.Scanner
+	MaxLineOutput     = 4 * 1024        // 4KB, for single line
 )
 
 type ToolStateGrep struct {
@@ -277,6 +278,10 @@ func grepFile(
 				if write < maxRetCount {
 					if showLine {
 						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+					}
+					if len(line) > MaxLineOutput {
+						line = line[:MaxLineOutput]
+						line += "...truncated due to length"
 					}
 					fmt.Fprintf(sb, "%v:%v:%v\n", fp, idx, line)
 				}
