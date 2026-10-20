@@ -123,7 +123,7 @@ func main() {
 	})
 	regToolFsReadFile(reg, &ToolStateReadFile{
 		Root:          conf.WorkSpace.Path,
-		MaxLines:      150,
+		MaxLines:      250,
 		MaxBufferSize: 1024,
 	})
 	regToolFsViewFile(reg, &ToolStateViewFile{

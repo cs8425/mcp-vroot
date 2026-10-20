@@ -22,8 +22,8 @@ var (
 
 type ToolStateReadFile struct {
 	Root              string
-	MaxLines          int
-	MaxBufferSize     int
+	MaxLines          int64
+	MaxBufferSize     int64
 	MaxLineBufferSize int
 }
 
@@ -142,7 +142,12 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 				if showLine {
 					fmt.Fprintf(buf, "% 3d| ", found)
 				}
-				buf.Write(bufLine)
+				if len(bufLine) <= MaxLineOutput {
+					buf.Write(bufLine)
+				}else{
+					buf.Write(bufLine[:MaxLineOutput])
+					buf.Write([]byte("...truncated due to length"))
+				}
 				buf.Write([]byte{'\n'})
 				write += 1
 			}
@@ -244,11 +249,11 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 			out.Mode = "line"
 			fallthrough
 		case "line":
-			if out.Length > MaxLines {
+			if out.Length > conf.MaxLines {
 				return ErrBadParam
 			}
 			if out.Length == 0 {
-				out.Length = MaxLines
+				out.Length = conf.MaxLines
 			}
 			if out.ShowLine == nil {
 				defVal := true
@@ -256,11 +261,11 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 			}
 			out.showLine = *out.ShowLine
 		case "hex":
-			if out.Length > MaxBufferSize {
+			if out.Length > conf.MaxBufferSize {
 				return ErrBadParam
 			}
 			if out.Length == 0 {
-				out.Length = MaxBufferSize
+				out.Length = conf.MaxBufferSize
 			}
 		}
 		if len(out.Path) <= 0 {
