@@ -2,7 +2,10 @@ module mcp-vroot
 
 go 1.27.1
 
-require github.com/klippa-app/go-pdfium v1.21.1
+require (
+	github.com/deepteams/webp v1.2.8
+	github.com/klippa-app/go-pdfium v1.21.1
+)
 
 require (
 	github.com/google/uuid v1.6.0 // indirect

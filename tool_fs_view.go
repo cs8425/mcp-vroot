@@ -17,6 +17,7 @@ import (
 
 	"mcp-vroot/jsonschema"
 
+	_ "github.com/deepteams/webp"
 	"github.com/klippa-app/go-pdfium"
 )
 
