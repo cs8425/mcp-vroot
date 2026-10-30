@@ -138,25 +138,27 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 			// line := string(bufLine)
 			// fmt.Println(line)
 			found += 1
-			if found+baseOffset > 0 && write < maxRetCount {
-				if showLine {
-					fmt.Fprintf(buf, "% 3d| ", found)
+			if found+baseOffset > 0 {
+				if write < maxRetCount {
+					if showLine {
+						fmt.Fprintf(buf, "% 3d| ", found)
+					}
+					if len(bufLine) <= MaxLineOutput {
+						buf.Write(bufLine)
+					} else {
+						buf.Write(bufLine[:MaxLineOutput])
+						buf.Write([]byte("...truncated due to length"))
+					}
+					buf.Write([]byte{'\n'})
 				}
-				if len(bufLine) <= MaxLineOutput {
-					buf.Write(bufLine)
-				}else{
-					buf.Write(bufLine[:MaxLineOutput])
-					buf.Write([]byte("...truncated due to length"))
-				}
-				buf.Write([]byte{'\n'})
 				write += 1
 			}
-			if write >= maxRetCount {
+			if write > maxRetCount {
 				break
 			}
 		}
-		if write >= maxRetCount {
-			buf.WriteString("Warning: reach maximum output limit\n")
+		if write > maxRetCount {
+			fmt.Fprintf(buf, "Warning: file has more content, use offset=%v to continue\n", offset+maxRetCount)
 		}
 		if err == nil {
 			err = scanner.Err()
