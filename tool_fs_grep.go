@@ -83,7 +83,7 @@ func regToolFsGrep(reg *Registry, conf *ToolStateGrep) {
 				},
 				"show_line": {
 					Type:        jsonschema.Boolean,
-					Description: "show line number when using line mode, start from 1. (default: true)",
+					Description: "show line number when using text mode, start from 1. (default: true)",
 				},
 			},
 			Required: []string{"pattern"},
@@ -261,7 +261,7 @@ func grepFile(
 				found += 1
 				if found+baseOffset > 0 && write < maxRetCount {
 					if showLine {
-						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+						fmt.Fprintf(sb, "% 3d| ", found+baseOffset)
 					}
 					fmt.Fprintf(sb, "%v:binary match\n", fp)
 					write += 1
@@ -277,7 +277,7 @@ func grepFile(
 			if found+baseOffset > 0 {
 				if write < maxRetCount {
 					if showLine {
-						fmt.Fprintf(sb, "% 3d| ", found-baseOffset)
+						fmt.Fprintf(sb, "% 3d| ", found+baseOffset)
 					}
 					if len(line) > MaxLineOutput {
 						line = line[:MaxLineOutput]
