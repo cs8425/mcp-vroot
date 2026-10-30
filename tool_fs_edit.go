@@ -109,6 +109,11 @@ func regToolFsEditFile(reg *Registry, conf *ToolStateEditFile) {
 				},
 			}, true
 		}
+		if len(diffText) == 0 {
+			diffText = "Warning: no edits applied, `old_text` need exact matching"
+		} else {
+			diffText = formatDiffWithBackticks(diffText)
+		}
 		return []ChatMessagePart{
 			{
 				Type: ChatMessagePartTypeText,
@@ -146,7 +151,6 @@ func ApplyFileEdits(root *os.Root, filePath string, edits []FileEdit, dryRun boo
 	}
 
 	diff := createUnifiedDiff(original, modified, filePath)
-	formattedDiff := formatDiffWithBackticks(diff)
 
 	if !dryRun {
 		if err := atomicReplaceFile(root, filePath, modified); err != nil {
@@ -154,7 +158,7 @@ func ApplyFileEdits(root *os.Root, filePath string, edits []FileEdit, dryRun boo
 		}
 	}
 
-	return formattedDiff, nil
+	return diff, nil
 }
 
 func applyFlexibleReplace(modified, old, next string) (string, bool) {
