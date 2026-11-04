@@ -47,6 +47,19 @@ type initializeParams struct {
 	ClientInfo      map[string]any `json:"clientInfo"`
 }
 
+func rpcErrorByID(
+	id json.RawMessage,
+	code int,
+	message string,
+	data any,
+) rpcResponse {
+	return rpcResponse{
+		JSONRPC: JSONRPCVersion,
+		ID:      id,
+		Error:   &rpcError{Code: code, Message: message, Data: data},
+	}
+}
+
 func writeJSONRPCError(
 	w http.ResponseWriter,
 	status int,

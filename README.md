@@ -2,7 +2,7 @@
 
 繁體中文 ([README.zh.md](./README.zh.md)) | English
 
-**mcp-vroot** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server written in Go. It exposes filesystem tools over Streamable HTTP (JSON-RPC 2.0), letting an LLM or MCP client list, search, read, and view (images / PDFs) files inside a controlled workspace root — and, in read-write mode, write, edit, and manage directories.
+**mcp-vroot** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server written in Go. It exposes filesystem tools over Streamable HTTP and stdio (JSON-RPC 2.0), letting an LLM or MCP client list, search, read, and view (images / PDFs) files inside a controlled workspace root — and, in read-write mode, write, edit, and manage directories.
 
 All file operations are performed through Go's `os.Root` API and are strictly confined to the configured root directory — they cannot escape to external paths (hence the "vroot" in the name).
 
@@ -36,6 +36,7 @@ through the Web UI to read text, PDFs, and images inside the workspace.
 ## Features
 
 - **Streamable HTTP transport**: POST only, stateless (no sessions); supports both the modern `2026-07-28` and legacy `2025-11-25` MCP protocol revisions
+- **stdio transport**: newline-delimited JSON-RPC over stdin/stdout (`-stdio` flag); the same two protocol revisions (modern requests are self-describing via `_meta`, legacy clients use the `initialize` handshake); the process exits when stdin is closed
 - **Designed for browser-based clients**: CORS + Origin allow-list, so the llama.cpp Web UI can call it directly
 - **Sandboxed**: all paths are relative to the workspace root; `os.Root` prevents path escape
 - **Read-only / read-write modes**: read-only by default (`ro`); write tools must be explicitly enabled (`rw`)
@@ -66,9 +67,29 @@ go build -trimpath -ldflags="-s -w" -o mcp-vroot .
 |------|-------------|---------|
 | `-c` | Config file path | `config.json` |
 | `-l` | Bind address (overrides `bind` in the config) | empty (use config) |
+| `-stdio` | Serve MCP over stdio instead of starting the HTTP listener | `false` |
 | `-v` | Log verbosity (higher = more detailed) | `3` |
 
 If no config file is found, the server starts with built-in defaults: bind `127.0.0.1:8765`, workspace `./workspace`, read-only mode.
+
+### Run in stdio mode
+
+```sh
+./mcp-vroot -c config.json -stdio
+```
+
+In stdio mode the server reads newline-delimited JSON-RPC messages from `stdin` and writes responses to `stdout`; logs go to `stderr` (so they never corrupt the message stream). No HTTP listener is started, and the process exits when `stdin` is closed. This is the transport for MCP clients that launch servers as subprocesses (e.g. Claude Desktop, Cursor, `mcp-cli`):
+
+```json
+{
+  "mcpServers": {
+    "vroot": {
+      "command": "/path/to/mcp-vroot",
+      "args": ["-c", "/path/to/config.json", "-stdio"]
+    }
+  }
+}
+```
 
 ### Docker
 
@@ -137,6 +158,8 @@ The config file is JSON (see [`config.json`](./config.json) for an example):
 
 ## Protocol Details
 
+### Streamable HTTP
+
 - Endpoint: any path, `POST` only (the modern Streamable HTTP revision dropped GET/DELETE)
 - Requests must satisfy:
   - `Content-Type: application/json`
@@ -147,8 +170,19 @@ The config file is JSON (see [`config.json`](./config.json) for an example):
   - `tools/list`
   - `tools/call`
   - `initialize` / `notifications/initialized` (legacy `2025-11-25` only)
+  - `ping` (legacy `2025-11-25` utility, answered with an empty result; removed in `2026-07-28`)
 - The modern revision requires headers and body to be consistent (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` are cross-checked against `_meta`, `method`, and `params.name`)
+- Legacy version negotiation: if a client advertises a version this server does not support, the `initialize` response returns `2025-11-25` (the latest version this server supports) and the client decides whether to continue
 - Stateless: no `MCP-Session-Id` is issued
+
+### stdio
+
+- One JSON-RPC message per line on `stdin`/`stdout`; no embedded newlines; `stderr` is reserved for logs
+- Same supported methods as HTTP (including `ping`, answered at any time); there is no header layer, so modern requests carry their metadata inline in `_meta` (the protocol version is required on every request)
+- Legacy `2025-11-25` clients must perform the `initialize` handshake first; a request without an inline version before that is rejected with `-32600`
+- Legacy version negotiation: an `initialize` advertising an older version is answered with `2025-11-25` (the latest version this server supports) instead of an error
+- Cancellation via `notifications/cancelled {requestId, reason}`
+- The server exits when `stdin` reaches EOF
 
 ### Example Request (curl)
 
@@ -183,13 +217,14 @@ curl -s http://127.0.0.1:8765/mcp \
 go test ./...
 ```
 
-`server_test.go` covers: modern `server/discover`, modern `tools/call`, header/body consistency validation, the legacy `initialize` → `tools/call` flow, rejection of unknown origins, and CORS preflight.
+`server_test.go` covers: modern `server/discover`, modern `tools/call`, header/body consistency validation, the legacy `initialize` → `tools/call` flow, rejection of unknown origins, and CORS preflight. `TestStdio` covers the stdio transport: the modern `server/discover` / `tools/list` / `tools/call` flow, the legacy `initialize` → `tools/call` handshake, the not-initialized error, unknown methods, and prompt exit on stdin EOF.
 
 ## Project Structure
 
 ```
 ├── mcp.go             # JSON-RPC types, MCP protocol version constants
-├── mcp_server.go      # Streamable HTTP handler, version dispatch (modern/legacy), CORS
+├── mcp_server.go      # Streamable HTTP handler, version dispatch (modern/legacy), CORS, shared dispatch core
+├── mcp_stdio.go       # stdio transport (newline-delimited JSON-RPC, modern + legacy)
 ├── server.go          # main(), config parsing, tool registration
 ├── toolcall.go        # Tool Registry (Register / Dispatch)
 ├── tool_fs_list.go    # fs_list

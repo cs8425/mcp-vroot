@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -237,6 +238,10 @@ func (s *McpServer) handleLegacy(w http.ResponseWriter, r *http.Request, req rpc
 	switch req.Method {
 	case "notifications/initialized": // just skip
 		return
+	case "ping":
+		// Liveness utility (2025-11-25); allowed even before initialize.
+		writeResult(w, r, req.ID, map[string]any{})
+		return
 	case "initialize":
 		var p initializeParams
 
@@ -252,24 +257,9 @@ func (s *McpServer) handleLegacy(w http.ResponseWriter, r *http.Request, req rpc
 			return
 		}
 
-		if p.ProtocolVersion != LegacyVersion {
-			writeJSONRPCError(
-				w,
-				http.StatusBadRequest,
-				req.ID,
-				-32022,
-				"unsupported protocol version",
-				map[string]any{
-					"requested": p.ProtocolVersion,
-					"supported": []string{
-						ModernVersion,
-						LegacyVersion,
-					},
-				},
-			)
-			return
-		}
-
+		// Version negotiation (2025-11-25): if the client does not request
+		// a version we support, we still answer with the latest one we do;
+		// the client decides whether to continue.
 		result := map[string]any{
 			"protocolVersion": LegacyVersion,
 			"capabilities": map[string]any{
@@ -279,6 +269,7 @@ func (s *McpServer) handleLegacy(w http.ResponseWriter, r *http.Request, req rpc
 				"name":    s.Name,
 				"version": s.Version,
 			},
+			"instructions": "Minimal MCP test server.",
 		}
 
 		// Deliberately do NOT send MCP-Session-Id.
@@ -320,42 +311,65 @@ func (s *McpServer) dispatch(
 	version string,
 	p ToolRequest,
 ) {
+	out := s.dispatchCore(r.Context(), req, version, p)
+	if out.code != 0 {
+		writeJSONRPCError(w, out.status, req.ID, out.code, out.msg, out.data)
+		return
+	}
+	writeResult(w, r, req.ID, out.result)
+}
+
+// dispatchOutcome is the transport-agnostic result of one MCP method call.
+// status is only meaningful for the HTTP transport.
+type dispatchOutcome struct {
+	status int
+	result any
+	code   int    // JSON-RPC error code; 0 = success
+	msg    string // JSON-RPC error message
+	data   any    // JSON-RPC error data
+}
+
+// dispatchCore runs one MCP method without any transport dependency.
+// Both Streamable HTTP and stdio dispatch through it.
+func (s *McpServer) dispatchCore(
+	ctx context.Context,
+	req rpcRequest,
+	version string,
+	p ToolRequest,
+) dispatchOutcome {
 	switch req.Method {
 
 	case "server/discover":
 		if version != ModernVersion {
-			writeJSONRPCError(
-				w,
-				http.StatusNotFound,
-				req.ID,
-				-32601,
-				"method not found",
-				nil,
-			)
-			return
+			return dispatchOutcome{
+				status: http.StatusNotFound,
+				code:   -32601,
+				msg:    "method not found",
+			}
 		}
 
-		result := map[string]any{
-			"resultType": "complete",
-			"supportedVersions": []string{
-				ModernVersion,
-				LegacyVersion,
-			},
-			"capabilities": map[string]any{
-				"tools": map[string]any{}, // allTools, ?
-			},
-			"_meta": map[string]any{
-				"io.modelcontextprotocol/serverInfo": map[string]any{
-					"name":    s.Name,
-					"version": s.Version,
+		return dispatchOutcome{
+			status: http.StatusOK,
+			result: map[string]any{
+				"resultType": "complete",
+				"supportedVersions": []string{
+					ModernVersion,
+					LegacyVersion,
 				},
+				"capabilities": map[string]any{
+					"tools": map[string]any{}, // allTools, ?
+				},
+				"_meta": map[string]any{
+					"io.modelcontextprotocol/serverInfo": map[string]any{
+						"name":    s.Name,
+						"version": s.Version,
+					},
+				},
+				"instructions": "Minimal MCP test server.",
+				"ttlMs":        3600000,
+				"cacheScope":   "public",
 			},
-			"instructions": "Minimal MCP test server.",
-			"ttlMs":        3600000,
-			"cacheScope":   "public",
 		}
-
-		writeResult(w, r, req.ID, result)
 
 	case "tools/list":
 		result := map[string]any{
@@ -369,36 +383,28 @@ func (s *McpServer) dispatch(
 			result["cacheScope"] = "public"
 		}
 
-		writeResult(w, r, req.ID, result)
+		return dispatchOutcome{status: http.StatusOK, result: result}
 
 	case "tools/call": // TODO: move to McpServer.handleToolCall()
-		res, err := s.Registry.Dispatch(r.Context(), &p)
+		res, err := s.Registry.Dispatch(ctx, &p)
 		if err != nil {
 			// Tool lookup/argument failures are normally returned as
 			// JSON-RPC errors so the client can react to them.
-			writeJSONRPCError(
-				w,
-				http.StatusOK,
-				req.ID,
-				-32602,
-				"unknown tool",
-				nil,
-			)
-			return
+			return dispatchOutcome{
+				status: http.StatusOK,
+				code:   -32602,
+				msg:    "unknown tool",
+			}
 		}
-		writeResult(w, r, req.ID, res)
-		return
+		return dispatchOutcome{status: http.StatusOK, result: res}
 
 	default:
 		// Unknown MCP method over Streamable HTTP is HTTP 404 + JSON-RPC -32601.
-		writeJSONRPCError(
-			w,
-			http.StatusNotFound,
-			req.ID,
-			-32601,
-			"method not found",
-			nil,
-		)
+		return dispatchOutcome{
+			status: http.StatusNotFound,
+			code:   -32601,
+			msg:    "method not found",
+		}
 	}
 }
 

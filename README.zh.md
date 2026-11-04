@@ -2,7 +2,7 @@
 
 [English](./README.md) | 繁體中文
 
-**mcp-vroot** 是以 Go 撰寫的 [MCP (Model Context Protocol)](https://modelcontextprotocol.io) 伺服器，透過 Streamable HTTP（JSON-RPC 2.0）提供檔案系統工具，讓 LLM 或 MCP Client 能在受控的 workspace 根目錄內列出、搜尋、讀取、檢視（圖片 / PDF）檔案，並在讀寫模式下進行寫入、編輯與目錄管理。
+**mcp-vroot** 是以 Go 撰寫的 [MCP (Model Context Protocol)](https://modelcontextprotocol.io) 伺服器，透過 Streamable HTTP 與 stdio（JSON-RPC 2.0）提供檔案系統工具，讓 LLM 或 MCP Client 能在受控的 workspace 根目錄內列出、搜尋、讀取、檢視（圖片 / PDF）檔案，並在讀寫模式下進行寫入、編輯與目錄管理。
 
 所有檔案操作皆透過 Go 的 `os.Root` API 執行，被嚴格限制在設定的根目錄內，無法逃逸到外部路徑（即名稱中 "vroot" 的由來）。
 
@@ -36,6 +36,7 @@
 ## 特色
 
 - **Streamable HTTP 傳輸**：POST only、stateless（無 session），同時支援 modern `2026-07-28` 與 legacy `2025-11-25` 兩個 MCP 協定版本
+- **stdio 傳輸**：stdin/stdout 上的 newline-delimited JSON-RPC（`-stdio` 參數）；同樣支援上述兩個協定版本（modern 請求以 `_meta` 自描述、legacy client 走 `initialize` handshake）；stdin 關閉時程序結束
 - **為瀏覽器端 client 設計**：CORS + Origin allow-list，可被 llama.cpp Web UI 直接呼叫
 - **沙箱化**：所有路徑均相對於 workspace 根目錄，`os.Root` 防止路徑逃逸
 - **唯讀 / 讀寫模式**：預設唯讀（`ro`），寫入工具需在設定中明確開啟（`rw`）
@@ -66,9 +67,29 @@ go build -trimpath -ldflags="-s -w" -o mcp-vroot .
 |------|------|--------|
 | `-c` | 設定檔路徑 | `config.json` |
 | `-l` | 監聽位址（覆寫設定檔的 `bind`） | 空（使用設定檔） |
+| `-stdio` | 以 stdio 傳輸提供 MCP，而不啟動 HTTP listener | `false` |
 | `-v` | 日誌詳細等級（數字越大越詳細） | `3` |
 
 若找不到設定檔，伺服器會以內建預設值啟動：綁定 `127.0.0.1:8765`、workspace `./workspace`、唯讀模式。
+
+### 以 stdio 模式執行
+
+```sh
+./mcp-vroot -c config.json -stdio
+```
+
+stdio 模式下，伺服器從 `stdin` 讀取 newline-delimited JSON-RPC 訊息、將回應寫到 `stdout`；日誌寫到 `stderr`（不會污染訊息串）。不會啟動 HTTP listener，`stdin` 關閉時程序結束。這是給會以 subprocess 方式啟動 MCP server 的 client 用的傳輸（例如 Claude Desktop、Cursor、`mcp-cli`）：
+
+```json
+{
+  "mcpServers": {
+    "vroot": {
+      "command": "/path/to/mcp-vroot",
+      "args": ["-c", "/path/to/config.json", "-stdio"]
+    }
+  }
+}
+```
 
 ### Docker
 
@@ -137,6 +158,8 @@ docker run -it --rm -p 8765:8765 -u 1000:1000 \
 
 ## 協定細節
 
+### Streamable HTTP
+
 - 端點：任意路徑，僅接受 `POST`（modern 版本的 Streamable HTTP 已移除 GET/DELETE）
 - 請求需符合：
   - `Content-Type: application/json`
@@ -147,8 +170,19 @@ docker run -it --rm -p 8765:8765 -u 1000:1000 \
   - `tools/list`
   - `tools/call`
   - `initialize` / `notifications/initialized`（僅 legacy `2025-11-25`）
+  - `ping`（legacy `2025-11-25` 工具，以空結果回應；`2026-07-28` 已移除）
 - modern 版本要求 header 與 body 一致（`MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name` 與 `_meta`、`method`、`params.name` 相互驗證）
+- legacy 版本協商：若 client 宣告的協定版本本伺服器不支援，`initialize` 回應會回傳 `2025-11-25`（本伺服器支援的最新版本），由 client 決定是否繼續
 - stateless：不發行 `MCP-Session-Id`
+
+### stdio
+
+- `stdin`/`stdout` 上一行一則 JSON-RPC 訊息；不得含 embedded newline；`stderr` 保留給日誌
+- 支援的方法與 HTTP 相同（含 `ping`，隨時可答）；stdio 沒有 header 層，modern 請求的 metadata 全在 `_meta` 內（每個請求都必帶協定版本）
+- legacy `2025-11-25` client 必須先完成 `initialize` handshake；在此之前、未帶 inline 版本的請求會被以 `-32600` 拒絕
+- legacy 版本協商：宣告舊版本的 `initialize` 會以 `2025-11-25`（本伺服器支援的最新版本）回應，而不是回傳錯誤
+- 以 `notifications/cancelled {requestId, reason}` 取消進行中的請求
+- `stdin` 到達 EOF 時伺服器結束
 
 ### 呼叫範例（curl）
 
@@ -183,13 +217,14 @@ curl -s http://127.0.0.1:8765/mcp \
 go test ./...
 ```
 
-`server_test.go` 涵蓋：modern `server/discover`、modern `tools/call`、header/body 一致性驗證、legacy `initialize` → `tools/call` 流程、未知 Origin 拒絕、CORS preflight。
+`server_test.go` 涵蓋：modern `server/discover`、modern `tools/call`、header/body 一致性驗證、legacy `initialize` → `tools/call` 流程、未知 Origin 拒絕、CORS preflight。`TestStdio` 涵蓋 stdio 傳輸：modern `server/discover` / `tools/list` / `tools/call` 流程、legacy `initialize` → `tools/call` handshake、未 initialize 錯誤、未知方法、以及 stdin EOF 時 promptly 結束。
 
 ## 專案結構
 
 ```
 ├── mcp.go             # JSON-RPC 型別、MCP 協定版本常數
-├── mcp_server.go      # Streamable HTTP handler、版本分流（modern/legacy）、CORS
+├── mcp_server.go      # Streamable HTTP handler、版本分流（modern/legacy）、CORS、共用 dispatch core
+├── mcp_stdio.go       # stdio 傳輸（newline-delimited JSON-RPC，modern + legacy）
 ├── server.go          # main()、設定解析、工具註冊
 ├── toolcall.go        # Tool Registry（Register / Dispatch）
 ├── tool_fs_list.go    # fs_list

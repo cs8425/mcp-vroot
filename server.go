@@ -36,6 +36,7 @@ const (
 var (
 	configFile = flag.String("c", "config.json", "config file")
 	address    = flag.String("l", "", "bind streamable http mcp server at address")
+	stdioMode  = flag.Bool("stdio", false, "serve MCP over stdio (newline-delimited JSON-RPC on stdin/stdout) instead of HTTP")
 )
 
 func parseConfig(fp string) (*Config, error) {
@@ -170,6 +171,17 @@ func main() {
 		Version: ServerVersion,
 
 		Origin: allowOrigin,
+	}
+
+	if *stdioMode {
+		// stdio transport: JSON-RPC on stdin/stdout, logs on stderr.
+		// No HTTP listener; the process exits when stdin is closed.
+		Vln(2, "[stdio]ready")
+		if err := NewStdioServer(s).Serve(); err != nil {
+			Vln(2, "[stdio]err", err)
+		}
+		Vln(2, "[exit]stdio")
+		return
 	}
 
 	Vln(2, "[bind]", conf.Bind)
