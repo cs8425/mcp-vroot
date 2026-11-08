@@ -173,17 +173,13 @@ func grep(
 	lineBuffer []byte,
 	pdfPool pdfium.Pool,
 ) (string, error) {
-	if fp == "" {
-		fp = "."
-	}
-	fp, _ = strings.CutSuffix(fp, "/")
+	// root.FS() (fs.WalkDir below) only accepts io/fs.ValidPath names, while the
+	// caller may hand over "", "x/", "./x" or "a/../b".
+	fp = toFsPath(fp)
 	rx, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", err
 	}
-	_ = rx
-	fp = filepath.Join(".", fp)
-	fp = filepath.ToSlash(fp)
 	idx := -offsetLine
 	retLine := 0
 	var sb strings.Builder

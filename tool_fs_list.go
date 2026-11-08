@@ -146,10 +146,9 @@ func regToolFsList(reg *Registry, conf *ToolListState) {
 
 // maxDepth <= 0: no depth limit
 func fsFind(root *os.Root, fp string, pattern string, maxDepth int, limit int, offset int, sb *strings.Builder) (string, error) {
-	if fp == "" {
-		fp = "."
-	}
-	fp, _ = strings.CutSuffix(fp, "/")
+	// root.FS() (fs.WalkDir below) only accepts io/fs.ValidPath names, while the
+	// caller may hand over "", "x/", "./x" or "a/../b".
+	fp = toFsPath(fp)
 
 	var rx *regexp.Regexp
 	var err error
@@ -159,9 +158,6 @@ func fsFind(root *os.Root, fp string, pattern string, maxDepth int, limit int, o
 			return "", err
 		}
 	}
-
-	fp = filepath.Join(".", fp)
-	fp = filepath.ToSlash(fp)
 
 	if sb == nil {
 		sb = &strings.Builder{}

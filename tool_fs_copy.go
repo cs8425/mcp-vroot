@@ -66,11 +66,12 @@ Timestamps, ownership, xattrs, ACLs, Symlink, and hard links are not preserved.`
 		if len(out.SrcPath) <= 0 {
 			return ErrBadParam
 		}
-		out.SrcPath = toRootPath(out.SrcPath)
+		// Normalize early: every spelling the caller may use ("./x", "/x", "x/", "a/../b") has to survive fs.WalkDir() in copyDir().
+		out.SrcPath = toFsPath(toRootPath(out.SrcPath))
 		if len(out.DstPath) <= 0 {
 			return ErrBadParam
 		}
-		out.DstPath = toRootPath(out.DstPath)
+		out.DstPath = toFsPath(toRootPath(out.DstPath))
 		return nil
 	}, func(ctx context.Context, req *ToolRequest, param *ToolCopy, state *ToolStateCopy) ([]ChatMessagePart, bool) {
 		Vf(4, "[fs][cp]src=%v, dst=%v\n", param.SrcPath, param.DstPath)
@@ -153,6 +154,13 @@ type copyStats struct {
 // On failure the original destination is left untouched as far as this
 // function's own writes are concerned; work is done in a temporary sibling.
 func doFsCopy(ctx context.Context, root *os.Root, src string, dst string) (hint string, err error, isErr bool) {
+	// Accept every spelling the tool surface allows ("x", "./x", "/x", "x/",
+	// "x/.", "a/../b"). Besides letting copyDir() hand a valid fs.ValidPath to
+	// fs.WalkDir(), this keeps path.Dir(dst) from treating a trailing slash as
+	// part of the last element and reporting a wrong "destination parent".
+	src = toFsPath(src)
+	dst = toFsPath(dst)
+
 	// Source must exist.
 	srcInfo, err := root.Lstat(src)
 	if err != nil {
@@ -559,6 +567,11 @@ func copyDir(
 	dst string,
 	stats *copyStats,
 ) error {
+	// fs.WalkDir() below runs on root.FS(), which only accepts io/fs.ValidPath
+	// names. doFsCopy() already normalizes; normalizing again keeps a direct
+	// caller from reintroducing the `stat ./x: invalid argument` failure.
+	src = toFsPath(src)
+
 	srcInfo, err := root.Lstat(src)
 	if err != nil {
 		return err

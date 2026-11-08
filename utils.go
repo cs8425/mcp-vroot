@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 var (
@@ -47,6 +49,32 @@ func toRootPath(fp string) string {
 		return "." + fp // "/abs-path/to-file" => "./abs-path/to-file"
 	}
 	return fp
+}
+
+// toFsPath normalizes a tool-level path into an io/fs.ValidPath name.
+//
+// The os.Root methods themselves (Lstat/Open/Mkdir/...) use filepath.IsLocal
+// and therefore accept spellings such as "./x", "x/", "a/../b" or "/x".
+// os.Root.FS() - and thus fs.WalkDir - is stricter and rejects all of them
+// with `invalid argument`. Paths handed to fs.WalkDir must be normalized with
+// this function first (same idiom as fsFind() and grep() already do).
+//
+//	"x"       -> "x"
+//	"./x"     -> "x"
+//	"/x"      -> "x"
+//	"x/"      -> "x"
+//	"x/."     -> "x"
+//	"a/../b"  -> "b"
+//	"."       -> "."
+//	"/"       -> "."
+func toFsPath(fp string) string {
+	p := filepath.Join(".", filepath.ToSlash(fp))
+	p = filepath.ToSlash(p)
+	p = strings.TrimPrefix(p, "/")
+	if p == "" {
+		return "."
+	}
+	return p
 }
 
 func openFd(root *os.Root, fp string) (*os.File, int64, error) {
