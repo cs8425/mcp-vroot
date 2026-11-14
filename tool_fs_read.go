@@ -181,6 +181,14 @@ func regToolFsReadFile(reg *Registry, conf *ToolStateReadFile) {
 				},
 			}, true
 		}
+		if len(out) == 0 {
+			return []ChatMessagePart{
+				{
+					Type: ChatMessagePartTypeText,
+					Text: "tool return no data",
+				},
+			}, false
+		}
 		// if n != int64(len(out)) {
 		// 	return nil, io.ErrShortBuffer
 		// }
