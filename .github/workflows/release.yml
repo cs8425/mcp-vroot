@@ -1,0 +1,108 @@
+# Prebuilt mcp-vroot binaries: raw `go build` on a tag, attached to the GitHub release.
+#
+# Why raw go build and not goreleaser:
+#   * The repo is CGO-free through and through — go-pdfium runs PDFium as WASM on
+#     wazero, and webp/uuid/x-sys/x-text are pure Go. So one ubuntu-latest runner
+#     cross-compiles every target with plain GOOS/GOARCH; there is no C toolchain
+#     to wrangle per-OS.
+#   * One binary (package main at the repo root), no archives/tap/snap/nfpm/
+#     signing/changelog. goreleaser's value is exactly those; none apply here, so
+#     it would be a third-party dependency whose headline features go unused, plus
+#     a .goreleaser.yaml to keep versioned. A 40-line script does the job in the open.
+#   * goreleaser is still the right call *later* if releases ever grow to archives,
+#     several binaries, or signing. Revisit then — the loop below migrates to a
+#     builds: list one-for-one.
+#
+# Actions are pinned to exact patch versions; Go itself comes from go.mod, so the
+# runner and the Dockerfile never drift apart.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # the release step creates the GitHub release
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CGO_ENABLED: "0" # pure Go everywhere, same as the Dockerfile
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod # Go version lives in go.mod — single source of truth
+
+      # ServerVersion is a `const` (server.go:32-34), so the tag cannot be injected
+      # with -ldflags -X; the tag has to match the source instead. Fail loudly here
+      # rather than publish a binary whose McpServer.Version (server.go:171, reported
+      # in initialize / server/discover) disagrees with the release it belongs to.
+      # To get tag-stamped builds instead, turn that const into
+      #   var ServerVersion = "0.1.0"
+      # and use the commented-out ldflags below in place of the plain -ldflags.
+      - name: Version check
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          if ! grep -qE "^[[:space:]]*ServerVersion[[:space:]]*=[[:space:]]*\"${ver}\"[[:space:]]*$" server.go; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match ServerVersion in server.go — bump the const and re-tag, or convert it to var and stamp it at build time"
+            exit 1
+          fi
+          echo "tag matches ServerVersion ${ver}"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # stamp="-X main.ServerVersion=$GITHUB_REF_NAME" # only with var ServerVersion
+          #   goos:goarch:exe-suffix
+          # To add a target, append one string, e.g.:
+          #   "darwin:arm64:" "darwin:amd64:"
+          # -tags timetzdata keeps this build byte-for-byte in step with the
+          # Dockerfile. Nothing in this repo calls time.LoadLocation today, so the
+          # tag is only insurance for a dependency that does — drop it here and the
+          # Dockerfile together, never just one of the two.
+          for t in "linux:amd64:" "linux:arm64:" "windows:amd64:.exe"; do
+            IFS=: read -r goos goarch ext <<<"$t"
+            echo "building mcp-vroot-$goos-$goarch$ext"
+            GOOS=$goos GOARCH=$goarch \
+              go build -trimpath -ldflags='-s -w' -tags timetzdata \
+              -o "dist/mcp-vroot-$goos-$goarch$ext" .
+          done
+          (cd dist && sha256sum mcp-vroot-* > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          # No assumption about how the app handles flags; assert the property the
+          # Dockerfile actually depends on: the scratch image ships no libc, so the
+          # linux binary must be statically linked. ldd on a static ELF prints
+          # "not a dynamic executable" and exits non-zero — that is the pass case.
+          if out=$(ldd ./dist/mcp-vroot-linux-amd64 2>&1); then
+            echo "::error::expected a static binary, but ldd succeeded: $out"
+            exit 1
+          fi
+          ls -l dist/
+          ./dist/mcp-vroot-linux-amd64 -h 2>&1 | head -5 || true
+
+      # Every run leaves the binaries here for inspection; a workflow_dispatch run
+      # (no v* tag) stops here, having built and verified the cross-compile only.
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: mcp-vroot-${{ github.ref_name }}
+          path: dist/
+
+      # Only a v* tag publishes; the tag name becomes the release title verbatim.
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3.0.4
+        with:
+          files: dist/*
