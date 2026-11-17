@@ -43,16 +43,19 @@ func copyTestFixture(t *testing.T, root string) {
 		copyTestMkdirAll(t, filepath.Join(root, filepath.FromSlash(d)))
 	}
 
-	files := map[string]string{
-		"a.txt":          "root file A\n",
-		".hidden":        "hidden dotfile\n",
-		"中文 檔名.txt":      "unicode name\n",
-		"sub/b.txt":      "sub dir file B\n",
-		"sub/deep/c.txt": "deep nested C\n",
-		"sub2/d.txt":     "sub2 file D\n",
+	files := []struct {
+		path string
+		text string
+	}{
+		{"a.txt", "root file A\n"},
+		{".hidden", "hidden dotfile\n"},
+		{"中文 檔名.txt", "unicode name\n"},
+		{"sub/b.txt", "sub dir file B\n"},
+		{"sub/deep/c.txt", "deep nested C\n"},
+		{"sub2/d.txt", "sub2 file D\n"},
 	}
-	for rel, data := range files {
-		copyTestWriteFile(t, filepath.Join(root, filepath.FromSlash(rel)), []byte(data))
+	for _, f := range files {
+		copyTestWriteFile(t, filepath.Join(root, filepath.FromSlash(f.path)), []byte(f.text))
 	}
 }
 
@@ -405,33 +408,36 @@ func TestFsCopyLargeFile(t *testing.T) {
 }
 
 func TestToFsPath(t *testing.T) {
-	cases := map[string]string{
-		"x":          "x",
-		"./x":        "x",
-		"/x":         "x",
-		"x/":         "x",
-		"x/.":        "x",
-		"a//b":       "a/b",
-		"a/../b":     "b",
-		"./sub/../x": "x",
-		"a/b":        "a/b",
-		".":          ".",
-		"./":         ".",
-		"/":          ".",
-		"中文/檔 名":      "中文/檔 名",
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"x", "x"},
+		{"./x", "x"},
+		{"/x", "x"},
+		{"x/", "x"},
+		{"x/.", "x"},
+		{"a//b", "a/b"},
+		{"a/../b", "b"},
+		{"./sub/../x", "x"},
+		{"a/b", "a/b"},
+		{".", "."},
+		{"./", "."},
+		{"/", "."},
+		{"中文/檔 名", "中文/檔 名"},
 	}
 
-	for in, want := range cases {
-		got := toFsPath(in)
-		if got != want {
-			t.Errorf("toFsPath(%q) = %q, want %q", in, got, want)
+	for _, tc := range cases {
+		got := toFsPath(tc.in)
+		if got != tc.want {
+			t.Errorf("toFsPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 		if !fs.ValidPath(got) {
-			t.Errorf("toFsPath(%q) = %q is not fs.ValidPath", in, got)
+			t.Errorf("toFsPath(%q) = %q is not fs.ValidPath", tc.in, got)
 		}
 		// must be idempotent, copyDir() normalizes a second time
 		if again := toFsPath(got); again != got {
-			t.Errorf("toFsPath not idempotent for %q: %q -> %q", in, got, again)
+			t.Errorf("toFsPath not idempotent for %q: %q -> %q", tc.in, got, again)
 		}
 	}
 }
